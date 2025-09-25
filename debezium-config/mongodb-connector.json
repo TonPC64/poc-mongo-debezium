@@ -1,0 +1,20 @@
+{
+  "name": "mongodb-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.mongodb.MongoDbConnector",
+    "tasks.max": "1",
+    "mongodb.hosts": "mongodb:27017",
+    "mongodb.name": "mongodb",
+    "mongodb.user": "root",
+    "mongodb.password": "root",
+    "mongodb.authsource": "admin",
+    "database.whitelist": "testdb",
+    "collection.whitelist": "testdb.users",
+    "database.history.kafka.bootstrap.servers": "kafka:29092",
+    "database.history.kafka.topic": "dbhistory.mongodb",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
+  }
+}

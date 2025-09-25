@@ -1,0 +1,145 @@
+version: '3.8'
+
+services:
+  # MongoDB 3.6 with replica set (required for Debezium)
+  mongodb:
+    image: mongo:3.6
+    platform: linux/amd64
+    container_name: mongodb
+    hostname: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+    command: ["/scripts/mongo-init.sh"]
+    healthcheck:
+      test: ["CMD", "mongo", "-u", "root", "-p", "root", "--authenticationDatabase", "admin", "--eval", "rs.status().ok"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - mongodb_data:/data/db
+      - ./scripts:/scripts:ro
+    networks:
+      - poc-network
+
+  # Kafka 2.4 with KRaft (no Zookeeper)
+  kafka:
+    image: bitnami/kafka:3.4.1
+    platform: linux/amd64
+    container_name: kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5s bash -c '</dev/tcp/kafka/29092' || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    environment:
+      # KRaft configuration
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_KRAFT_CLUSTER_ID: abcdefghijklmnopqrstuv
+      
+      # Listener configuration
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:29092,CONTROLLER://:9093,EXTERNAL://:9092
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      
+      # Topic and replication settings
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: true
+      KAFKA_CFG_NUM_PARTITIONS: 3
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: 1
+      
+      # Performance and log settings
+      KAFKA_CFG_LOG_FLUSH_INTERVAL_MESSAGES: 10000
+      KAFKA_CFG_LOG_FLUSH_INTERVAL_MS: 1000
+      KAFKA_CFG_LOG_RETENTION_BYTES: 1073741824
+      KAFKA_CFG_LOG_RETENTION_HOURS: 168
+      KAFKA_CFG_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_CFG_MESSAGE_MAX_BYTES: 1000000
+      
+      # JVM settings
+      KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
+      
+    volumes:
+      - kafka_data:/bitnami/kafka
+    networks:
+      - poc-network
+
+  # Kafka Connect with Debezium
+  connect:
+    image: debezium/connect:1.3
+    platform: linux/amd64
+    container_name: kafka-connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: my_connect_configs
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_TOPIC: my_connect_offsets
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_TOPIC: my_connect_statuses
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_LOG4J_ROOT_LOGLEVEL: "INFO"
+      CONNECT_LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest=WARN,org.reflections=ERROR"
+      CONNECT_PLUGIN_PATH: /kafka/connect
+    networks:
+      - poc-network
+
+  # Golang Consumer Application with Hot Reload
+  go-consumer:
+    build:
+      context: ./go-consumer
+      dockerfile: Dockerfile
+    container_name: go-consumer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_TOPIC: mongodb.testdb.users
+      KAFKA_GROUP_ID: go-consumer-group
+    networks:
+      - poc-network
+    volumes:
+      - ./go-consumer:/app
+      - /app/tmp # Keep tmp directory for Air builds
+      - go_modules_cache:/go/pkg/mod # Cache Go modules
+    working_dir: /app
+    tty: true
+    stdin_open: true
+
+volumes:
+  mongodb_data:
+  kafka_data:
+  go_modules_cache:
+
+networks:
+  poc-network:
+    driver: bridge
