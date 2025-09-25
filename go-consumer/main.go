@@ -112,10 +112,28 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 			log.Printf("Message claimed: value = %s, timestamp = %v, topic = %s, partition = %d, offset = %d",
 				string(message.Value), message.Timestamp, message.Topic, message.Partition, message.Offset)
 
+			// Check for empty or null messages (common with deletes)
+			if len(message.Value) == 0 {
+				log.Printf("Received empty message (tombstone) - likely a delete operation")
+				session.MarkMessage(message, "")
+				continue
+			}
+
+			// Check for null messages
+			if string(message.Value) == "null" {
+				log.Printf("Received null message (tombstone) - delete operation completed")
+				session.MarkMessage(message, "")
+				continue
+			}
+
 			// Parse Debezium message
 			var debeziumMsg DebeziumMessage
 			if err := json.Unmarshal(message.Value, &debeziumMsg); err != nil {
 				log.Printf("Error parsing Debezium message: %v", err)
+				log.Printf("Raw message content: %s", string(message.Value))
+				
+				// Try to handle as a simple string or different format
+				handleUnparsableMessage(message.Value, message.Topic, message.Partition, message.Offset)
 			} else {
 				handleDebeziumMessage(debeziumMsg)
 			}
@@ -128,6 +146,8 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 	}
 }
 
+
+
 func handleDebeziumMessage(msg DebeziumMessage) {
 	log.Printf("=== Debezium Message ===")
 	log.Printf("Operation: %s", msg.Op)
@@ -138,6 +158,7 @@ func handleDebeziumMessage(msg DebeziumMessage) {
 	switch msg.Op {
 	case "c": // Create
 		log.Printf("Document created: %+v", msg.After)
+		
 	case "u": // Update
 		log.Printf("Document updated:")
 		if msg.Before != nil {
@@ -152,12 +173,42 @@ func handleDebeziumMessage(msg DebeziumMessage) {
 		if msg.Filter != nil {
 			log.Printf("  Filter: %+v", msg.Filter)
 		}
+		
 	case "d": // Delete
-		log.Printf("Document deleted: %+v", msg.Before)
+		log.Printf("Document deleted - Before: %+v", msg.Before)
+		log.Printf("Delete Filter: %+v", msg.Filter)
+		
 	case "r": // Read (snapshot)
 		log.Printf("Document read (snapshot): %+v", msg.After)
+		
+	default:
+		log.Printf("Unknown operation: %s", msg.Op)
 	}
 	log.Printf("========================")
+}
+
+func handleUnparsableMessage(messageValue []byte, topic string, partition int32, offset int64) {
+	log.Printf("=== Unparsable Message ===")
+	log.Printf("Topic: %s, Partition: %d, Offset: %d", topic, partition, offset)
+	log.Printf("Raw content length: %d bytes", len(messageValue))
+	
+	// Try to detect if it's a tombstone message (common for deletes)
+	if len(messageValue) == 0 {
+		log.Printf("Type: Empty tombstone message (delete completion)")
+	} else if string(messageValue) == "null" {
+		log.Printf("Type: Null tombstone message (delete completion)")
+	} else {
+		// Try to parse as a simple JSON object
+		var genericMsg map[string]interface{}
+		if err := json.Unmarshal(messageValue, &genericMsg); err == nil {
+			log.Printf("Type: Generic JSON message")
+			log.Printf("Content: %+v", genericMsg)
+		} else {
+			log.Printf("Type: Non-JSON message")
+			log.Printf("Content: %s", string(messageValue))
+		}
+	}
+	log.Printf("==========================")
 }
 
 func getEnv(key, defaultValue string) string {
