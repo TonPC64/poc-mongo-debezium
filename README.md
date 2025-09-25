@@ -13,6 +13,7 @@ MongoDB 3.6 (Replica Set) → Debezium Connector → Kafka 3.4.1 (KRaft) → Gol
 - **MongoDB 3.6**: Source database with replica set enabled (required for Debezium)
 - **Kafka 3.4.1 (Bitnami)**: Message broker with KRaft mode (no Zookeeper required)
 - **Debezium**: MongoDB connector for change data capture
+- **Redpanda Console**: Web UI for monitoring Kafka topics, messages, and connectors
 - **Golang Consumer**: Application consuming and processing change events
 
 ## Key Features
@@ -185,6 +186,22 @@ This POC includes comprehensive health checks to ensure reliable service startup
   - Hot reload for development
 
 ## Monitoring and Debugging
+
+### Redpanda Console (Web UI)
+
+Access the Kafka Web UI at: **http://localhost:8080**
+
+Features available in Redpanda Console:
+- **Topics**: Browse all Kafka topics and their messages
+- **Consumers**: Monitor consumer groups and lag
+- **Connect**: View and manage Kafka Connect connectors
+- **Brokers**: Check Kafka broker status and configuration
+- **Messages**: Real-time message viewing with JSON formatting
+
+**Key Views:**
+- Topics → `mongodb.testdb.users` - View Debezium change events
+- Connect → `mongodb-connector` - Monitor connector status
+- Consumers → `go-consumer-group` - Check consumer lag
 
 ### Check Kafka Connect Status
 ```bash

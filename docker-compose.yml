@@ -112,6 +112,28 @@ services:
     networks:
       - poc-network
 
+  # Redpanda Console - Kafka Web UI
+  redpanda-console:
+    image: redpandadata/console:latest
+    container_name: redpanda-console
+    hostname: redpanda-console
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_SCHEMAREGISTRY_ENABLED: "false"
+      KAFKA_PROTOBUF_ENABLED: "false"
+      CONNECT_ENABLED: "true"
+      CONNECT_CLUSTERS_NAME: "debezium-connect"
+      CONNECT_CLUSTERS_URL: "http://connect:8083"
+      SERVER_LISTENPORT: 8080
+    networks:
+      - poc-network
+    restart: unless-stopped
+
   # Golang Consumer Application with Hot Reload
   go-consumer:
     build:
