@@ -112,6 +112,22 @@ services:
     networks:
       - poc-network
 
+  # Debezium UI - Web interface for Debezium connectors
+  debezium-ui:
+    image: debezium/debezium-ui:2.4
+    platform: linux/amd64
+    container_name: debezium-ui
+    hostname: debezium-ui
+    ports:
+      - "8082:8080"
+    depends_on:
+      - connect
+    environment:
+      KAFKA_CONNECT_URIS: http://connect:8083
+    networks:
+      - poc-network
+    restart: unless-stopped
+
   # Redpanda Console - Kafka Web UI
   redpanda-console:
     image: redpandadata/console:latest
@@ -145,7 +161,7 @@ services:
         condition: service_healthy
     environment:
       KAFKA_BROKERS: kafka:29092
-      KAFKA_TOPIC: mongodb.testdb.users
+      KAFKA_TOPIC: db-user-capture
       KAFKA_GROUP_ID: go-consumer-group
     networks:
       - poc-network

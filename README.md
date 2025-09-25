@@ -12,7 +12,8 @@ MongoDB 3.6 (Replica Set) → Debezium Connector → Kafka 3.4.1 (KRaft) → Gol
 
 - **MongoDB 3.6**: Source database with replica set enabled (required for Debezium)
 - **Kafka 3.4.1 (Bitnami)**: Message broker with KRaft mode (no Zookeeper required)
-- **Debezium**: MongoDB connector for change data capture
+- **Debezium Connect**: MongoDB connector for change data capture
+- **Debezium UI**: Web interface for managing and monitoring Debezium connectors
 - **Redpanda Console**: Web UI for monitoring Kafka topics, messages, and connectors
 - **Golang Consumer**: Application consuming and processing change events
 
@@ -187,8 +188,19 @@ This POC includes comprehensive health checks to ensure reliable service startup
 
 ## Monitoring and Debugging
 
-### Redpanda Console (Web UI)
+### Web UIs
 
+#### Debezium UI
+Access the Debezium management interface at: **http://localhost:8082**
+
+Features available in Debezium UI:
+- **Connector Management**: Create, update, and delete Debezium connectors
+- **Connector Monitoring**: View connector status, tasks, and health
+- **Configuration Validation**: Validate connector configurations before deployment
+- **Task Management**: Monitor individual connector tasks
+- **Visual Interface**: User-friendly web interface for Debezium operations
+
+#### Redpanda Console (Kafka Web UI)
 Access the Kafka Web UI at: **http://localhost:8080**
 
 Features available in Redpanda Console:
@@ -199,7 +211,7 @@ Features available in Redpanda Console:
 - **Messages**: Real-time message viewing with JSON formatting
 
 **Key Views:**
-- Topics → `mongodb.testdb.users` - View Debezium change events
+- Topics → `db-user-capture` - View Debezium change events
 - Connect → `mongodb-connector` - Monitor connector status
 - Consumers → `go-consumer-group` - Check consumer lag
 

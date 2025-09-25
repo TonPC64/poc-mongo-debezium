@@ -16,6 +16,12 @@
     "key.converter.schemas.enable": "false",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter.schemas.enable": "false",
-    "capture.mode": "oplog"
+    "capture.mode": "change_streams_update_full_with_pre_image",
+    "transforms": "route,extractKeyId",
+    "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.route.regex": ".*",
+    "transforms.route.replacement": "db-user-capture",
+    "transforms.extractKeyId.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
+    "transforms.extractKeyId.field": "id"
   }
 }

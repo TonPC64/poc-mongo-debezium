@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"regexp"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,7 +36,7 @@ type DebeziumMessage struct {
 
 func main() {
 	brokers := getEnv("KAFKA_BROKERS", "kafka:29092")
-	topic := getEnv("KAFKA_TOPIC", "mongodb.testdb.users")
+	topic := getEnv("KAFKA_TOPIC", "db-user-capture")
 	groupID := getEnv("KAFKA_GROUP_ID", "go-consumer-group")
 
 	// Wait for Kafka to be healthy before starting consumer
@@ -69,7 +71,6 @@ func main() {
 			consumer.ready = make(chan bool)
 		}
 	}()
-
 	<-consumer.ready
 	log.Println("Sarama consumer up and running!...")
 
@@ -109,8 +110,13 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 				return nil
 			}
 
-			log.Printf("Message claimed: value = %s, timestamp = %v, topic = %s, partition = %d, offset = %d",
-				string(message.Value), message.Timestamp, message.Topic, message.Partition, message.Offset)
+			// Extract ObjectId from key (now coming from Debezium layer)
+			originalKey := string(message.Key)
+			extractedId := extractObjectId(message.Key)
+
+			log.Printf("Message claimed: key = %s, extracted_id = %s, timestamp = %v, topic = %s, partition = %d, offset = %d",
+				originalKey, extractedId, message.Timestamp, message.Topic, message.Partition, message.Offset)
+			log.Printf("Value: %s", string(message.Value))
 
 			// Check for empty or null messages (common with deletes)
 			if len(message.Value) == 0 {
@@ -131,7 +137,7 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 			if err := json.Unmarshal(message.Value, &debeziumMsg); err != nil {
 				log.Printf("Error parsing Debezium message: %v", err)
 				log.Printf("Raw message content: %s", string(message.Value))
-				
+
 				// Try to handle as a simple string or different format
 				handleUnparsableMessage(message.Value, message.Topic, message.Partition, message.Offset)
 			} else {
@@ -146,7 +152,36 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 	}
 }
 
+// Helper function to extract ObjectId from MongoDB key format
+func extractObjectId(key []byte) string {
+	if len(key) == 0 {
+		return ""
+	}
 
+	keyStr := string(key)
+
+	// Handle JSON format: {"id":"{ \"$oid\" : \"60b5d4f4e5b2c1a2b3c4d5e6\"}"}
+	if strings.Contains(keyStr, "\"$oid\"") {
+		// Extract the ObjectId using regex
+		re := regexp.MustCompile(`\"\$oid\"\s*:\s*\"([^\"]+)\"`)
+		matches := re.FindStringSubmatch(keyStr)
+		if len(matches) > 1 {
+			return matches[1]
+		}
+	}
+
+	// Handle direct format: { "$oid" : "60b5d4f4e5b2c1a2b3c4d5e6"}
+	if strings.Contains(keyStr, "$oid") {
+		re := regexp.MustCompile(`\$oid\"\s*:\s*\"([^\"]+)\"`)
+		matches := re.FindStringSubmatch(keyStr)
+		if len(matches) > 1 {
+			return matches[1]
+		}
+	}
+
+	// If no MongoDB format detected, return the key as-is
+	return keyStr
+}
 
 func handleDebeziumMessage(msg DebeziumMessage) {
 	log.Printf("=== Debezium Message ===")
@@ -158,7 +193,7 @@ func handleDebeziumMessage(msg DebeziumMessage) {
 	switch msg.Op {
 	case "c": // Create
 		log.Printf("Document created: %+v", msg.After)
-		
+
 	case "u": // Update
 		log.Printf("Document updated:")
 		if msg.Before != nil {
@@ -173,14 +208,14 @@ func handleDebeziumMessage(msg DebeziumMessage) {
 		if msg.Filter != nil {
 			log.Printf("  Filter: %+v", msg.Filter)
 		}
-		
+
 	case "d": // Delete
 		log.Printf("Document deleted - Before: %+v", msg.Before)
 		log.Printf("Delete Filter: %+v", msg.Filter)
-		
+
 	case "r": // Read (snapshot)
 		log.Printf("Document read (snapshot): %+v", msg.After)
-		
+
 	default:
 		log.Printf("Unknown operation: %s", msg.Op)
 	}
@@ -191,7 +226,7 @@ func handleUnparsableMessage(messageValue []byte, topic string, partition int32,
 	log.Printf("=== Unparsable Message ===")
 	log.Printf("Topic: %s, Partition: %d, Offset: %d", topic, partition, offset)
 	log.Printf("Raw content length: %d bytes", len(messageValue))
-	
+
 	// Try to detect if it's a tombstone message (common for deletes)
 	if len(messageValue) == 0 {
 		log.Printf("Type: Empty tombstone message (delete completion)")
